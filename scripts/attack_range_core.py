@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import yaml
 import requests
 from azure.mgmt.compute import ComputeManagementClient
@@ -77,6 +79,16 @@ class AzureAttackRangeCore:
                 print("Error: Terraform apply failed")
                 return False
             print("[+] Infrastructure built successfully")
+
+            if not self.create_ansible_inventory():
+                print("Error: Failed to create Ansible inventory for post-build deployment")
+                return False
+
+            if not self.deploy_post_build_script():
+                print("Error: Post-build PowerShell deployment failed")
+                return False
+
+            print("[+] Post-build configuration completed successfully")
             return True
         except Exception as e:
             print(f"Error building infrastructure: {e}")
@@ -99,10 +111,10 @@ class AzureAttackRangeCore:
     def update(self):
         """Update the infrastructure with new resources"""
         print("[+] Updating Azure Attack Range infrastructure...")
-        
+
         # Update IP configuration before updating
         self.update_ip_config()
-        
+
         try:
             result = os.system(f"terraform -chdir=terraform apply -auto-approve")
             if result != 0:
@@ -113,6 +125,80 @@ class AzureAttackRangeCore:
         except Exception as e:
             print(f"Error updating infrastructure: {e}")
             return False
+
+    def deploy_post_build_script(self):
+        """Deploy the WinRM configuration script to new Windows VMs using Ansible"""
+
+        playbook_path = 'playbooks/deploy_post_build_script.yml'
+        inventory_path = 'playbooks/inventory.yml'
+
+        if not os.path.exists(playbook_path):
+            print(f"Error: Ansible playbook not found at {playbook_path}")
+            return False
+
+        if not os.path.exists(inventory_path):
+            print("Error: Ansible inventory not found. Cannot run post-build deployment")
+            return False
+
+        print("[+] Deploying post-build PowerShell script to Windows VMs via Ansible...")
+
+        extra_vars = {}
+
+        post_build_config = self.config.get('post_build', {})
+
+        winrm_port = post_build_config.get('winrm_port')
+        if winrm_port is not None:
+            try:
+                winrm_port = int(winrm_port)
+                extra_vars['winrm_port'] = winrm_port
+            except (TypeError, ValueError):
+                print('Error: post_build.winrm_port must be an integer value.')
+                return False
+
+        defender_config = post_build_config.get('defender_for_endpoint', {})
+        enable_defender = defender_config.get('enable_onboarding', False)
+        if enable_defender:
+            script_path = defender_config.get('onboarding_script_path')
+            if not script_path:
+                print('Error: defender_for_endpoint.onboarding_script_path must be provided when enable_onboarding is true.')
+                return False
+
+            script_path = os.path.expanduser(script_path)
+            if not os.path.isfile(script_path):
+                print(f"Error: Defender for Endpoint onboarding script not found at {script_path}")
+                return False
+
+            extra_vars['defender_onboarding_enable'] = True
+            extra_vars['defender_onboarding_script'] = script_path
+
+            onboarding_arguments = defender_config.get('onboarding_arguments', [])
+            if onboarding_arguments:
+                if not isinstance(onboarding_arguments, list):
+                    print('Error: defender_for_endpoint.onboarding_arguments must be a list of strings.')
+                    return False
+
+                extra_vars['defender_onboarding_arguments'] = onboarding_arguments
+        else:
+            if defender_config.get('onboarding_script_path'):
+                print('Warning: Defender onboarding script path provided but enable_onboarding is false. Skipping Defender onboarding.')
+
+        try:
+            command = ['ansible-playbook', '-i', inventory_path, playbook_path]
+            if extra_vars:
+                command.extend(['-e', json.dumps(extra_vars)])
+
+            subprocess.run(
+                command,
+                check=True
+            )
+            print("[+] Post-build PowerShell script deployed successfully")
+            return True
+        except FileNotFoundError:
+            print("Error: ansible-playbook command not found. Please install Ansible.")
+        except subprocess.CalledProcessError as exc:
+            print(f"Error: Ansible playbook execution failed with exit code {exc.returncode}")
+
+        return False
 
     def create_ansible_inventory(self):
         """Create Ansible inventory file with VM information"""
@@ -185,7 +271,8 @@ class AzureAttackRangeCore:
                         inventory['all']['children']['windows']['hosts'][vm_name] = {
                             'ansible_host': public_ip,
                             'ansible_winrm_operation_timeout_sec': 60,
-                            'ansible_winrm_read_timeout_sec': 70
+                            'ansible_winrm_read_timeout_sec': 70,
+                            'post_build_target': True
                         }
                     elif "kali" in vm_name.lower():
                         inventory['all']['children']['linux']['hosts'][vm_name] = {
