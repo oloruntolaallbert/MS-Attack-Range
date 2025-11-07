@@ -14,13 +14,20 @@ machine_access:
     rdp_enabled: true
     username: "azureuser"
     password: "YourSecurePassword123!AttackRange2024!"
-  
+
   windows_workstation:
     rdp_enabled: true
     username: "azureuser"
     password: "YourSecurePassword123!AttackRange2024!"
-  
+
   kali:
     ssh_enabled: true
     username: "kali"
     ssh_key_path: "~/.ssh/id_rsa"
+
+post_build:
+  winrm_port: 5985
+  defender_for_endpoint:
+    enable_onboarding: false
+    onboarding_script_path: "" # Provide the local path to your Defender onboarding script when enabling
+    onboarding_arguments: []    # Optional list of additional arguments passed to the onboarding script

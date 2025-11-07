@@ -1,0 +1,60 @@
+---
+- name: Deploy post-build PowerShell script to new Windows VMs
+  hosts: windows
+  gather_facts: no
+
+  tasks:
+    - name: Skip hosts that are not flagged for post-build deployment
+      ansible.builtin.meta: end_host
+      when: not (post_build_target | default(false))
+
+    - name: Validate Defender onboarding configuration
+      ansible.builtin.fail:
+        msg: "defender_onboarding_script must be provided when defender_onboarding_enable is true"
+      when:
+        - defender_onboarding_enable | default(false)
+        - (defender_onboarding_script | default('')) | length == 0
+
+    - name: Ensure post-build directory exists
+      ansible.windows.win_file:
+        path: C:\\AttackRange
+        state: directory
+
+    - name: Copy WinRM configuration script
+      ansible.windows.win_copy:
+        src: "{{ playbook_dir }}/../scripts/ConfigureWinRM.ps1"
+        dest: C:\\AttackRange\\ConfigureWinRM.ps1
+        force: true
+
+    - name: Copy Defender for Endpoint onboarding script when provided
+      ansible.windows.win_copy:
+        src: "{{ defender_onboarding_script }}"
+        dest: C:\\AttackRange\\MDEOnboardingScript.ps1
+        force: true
+      when:
+        - defender_onboarding_enable | default(false)
+        - defender_onboarding_script is defined
+        - defender_onboarding_script | length > 0
+
+    - name: Execute WinRM configuration script
+      ansible.windows.win_shell: |
+        $params = @{
+          Port = {{ winrm_port | default(5985) }}
+        }
+
+        {% if defender_onboarding_enable | default(false) %}
+        $params.EnableDefenderOnboarding = $true
+        $params.DefenderOnboardingScriptPath = 'C:\\AttackRange\\MDEOnboardingScript.ps1'
+        {% set onboarding_args = defender_onboarding_arguments | default([]) %}
+        {% if onboarding_args %}
+        $params.DefenderOnboardingArguments = @({{ onboarding_args | map('regex_replace', "'", "''") | map('regex_replace', '^(.*)$', "'\1'") | join(', ') }})
+        {% endif %}
+        {% endif %}
+
+        & C:\\AttackRange\\ConfigureWinRM.ps1 @params
+      register: winrm_script_execution
+
+    - name: Display script execution output
+      ansible.builtin.debug:
+        var: winrm_script_execution.stdout_lines
+      when: winrm_script_execution.stdout_lines is defined
