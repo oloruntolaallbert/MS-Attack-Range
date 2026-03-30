@@ -180,7 +180,8 @@ def main():
     parser.add_argument('-a', '--attack_type', help='Type of attack to perform')
     parser.add_argument('-s', '--sequence', 
                        choices=['recon', 'credential_theft', 'persistence', 'full_chain', 'cross_platform',
-                               'enhanced_recon', 'advanced_persistence', 'full_attack_simulation'],
+                               'enhanced_recon', 'advanced_persistence', 'full_attack_simulation',
+                               'ransomware_simulation', 'ransomware_pre_encryption', 'ransomware_impact'],
                        help='Attack sequence to run')
     
     args = parser.parse_args()
