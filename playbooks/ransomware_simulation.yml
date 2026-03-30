@@ -1,0 +1,354 @@
+---
+# Ransomware Simulation Playbook for MS-Attack-Range
+# WARNING: This playbook simulates ransomware INDICATORS only.
+# It does NOT perform real encryption. Safe for lab use.
+# Generates telemetry for Microsoft Sentinel detection testing.
+#
+# MITRE ATT&CK Mapping:
+#   - T1486 (Impact: Data Encrypted for Impact) - simulated via file renaming
+#   - T1490 (Impact: Inhibit System Recovery) - VSS deletion, bcdedit
+#   - T1059.001 (Execution: PowerShell) - PowerShell-based simulation
+#   - T1562.001 (Defense Evasion: Disable or Modify Tools) - Defender tampering
+#   - T1489 (Impact: Service Stop) - stopping security services
+#   - T1112 (Defense Evasion: Modify Registry) - wallpaper change
+
+##############################################################################
+# PHASE 1: Ransomware Pre-Encryption Behavior (Windows DC / Workstation)
+##############################################################################
+- name: "Ransomware Simulation - Phase 1: Pre-Encryption Indicators"
+  hosts: windows
+  gather_facts: no
+  tasks:
+
+    # --- T1490: Delete Volume Shadow Copies ---
+    - name: "T1490 - Delete Volume Shadow Copies (vssadmin)"
+      win_shell: |
+        Write-Host "[+] Simulating VSS deletion..."
+        vssadmin delete shadows /all /quiet
+      ignore_errors: yes
+      register: vss_result
+
+    - name: "T1490 - Delete Shadow Copies via WMI (alternate method)"
+      win_shell: |
+        Write-Host "[+] Simulating WMI shadow copy deletion..."
+        Get-WmiObject Win32_ShadowCopy | ForEach-Object { $_.Delete() }
+      ignore_errors: yes
+
+    # --- T1490: Disable Windows Recovery ---
+    - name: "T1490 - Disable automatic repair via bcdedit"
+      win_shell: |
+        Write-Host "[+] Disabling Windows recovery options..."
+        bcdedit /set {default} recoveryenabled No
+        bcdedit /set {default} bootstatuspolicy ignoreallfailures
+      ignore_errors: yes
+
+    # --- T1489: Stop Backup and Security Services ---
+    - name: "T1489 - Stop Volume Shadow Copy Service"
+      win_service:
+        name: VSS
+        state: stopped
+      ignore_errors: yes
+
+    - name: "T1489 - Stop Windows Backup Service"
+      win_service:
+        name: wbengine
+        state: stopped
+      ignore_errors: yes
+
+    - name: "T1489 - Stop SQL Server services (common ransomware target)"
+      win_shell: |
+        Write-Host "[+] Attempting to stop SQL services..."
+        Get-Service -Name 'MSSQL*' -ErrorAction SilentlyContinue | Stop-Service -Force -ErrorAction SilentlyContinue
+        Get-Service -Name 'SQLAgent*' -ErrorAction SilentlyContinue | Stop-Service -Force -ErrorAction SilentlyContinue
+      ignore_errors: yes
+
+    - name: Pause between phases
+      pause:
+        seconds: 10
+
+##############################################################################
+# PHASE 2: Simulated File Encryption (Mass Rename + Ransom Note)
+##############################################################################
+- name: "Ransomware Simulation - Phase 2: Simulated Encryption"
+  hosts: windows
+  gather_facts: no
+  tasks:
+
+    # --- Create test files to simulate encryption targets ---
+    - name: "Setup - Create simulation target directory"
+      win_file:
+        path: C:\RansomwareSimulation
+        state: directory
+
+    - name: "Setup - Create dummy files for simulation"
+      win_shell: |
+        $simDir = "C:\RansomwareSimulation"
+        $extensions = @('.docx', '.xlsx', '.pdf', '.pptx', '.jpg', '.png', '.sql', '.bak', '.csv', '.txt')
+        
+        Write-Host "[+] Creating 50 dummy files for ransomware simulation..."
+        for ($i = 1; $i -le 50; $i++) {
+            $ext = $extensions[$i % $extensions.Count]
+            $fileName = "important_document_$i$ext"
+            $filePath = Join-Path $simDir $fileName
+            [System.IO.File]::WriteAllText($filePath, "SIMULATION FILE $i - $(Get-Date) - $(New-Guid)")
+        }
+        Write-Host "[+] Created 50 dummy files in $simDir"
+
+    # --- T1486: Simulated encryption via mass file renaming ---
+    - name: "T1486 - Mass file rename to simulate encryption (.locked extension)"
+      win_shell: |
+        $simDir = "C:\RansomwareSimulation"
+        $count = 0
+        
+        Write-Host "[+] Simulating file encryption via mass rename..."
+        Get-ChildItem -Path $simDir -File | ForEach-Object {
+            $newName = $_.FullName + ".locked"
+            Rename-Item -Path $_.FullName -NewName $newName -Force
+            $count++
+        }
+        Write-Host "[+] Renamed $count files with .locked extension"
+      register: rename_result
+
+    # --- T1486: Drop ransom note ---
+    - name: "T1486 - Drop simulated ransom note in multiple locations"
+      win_copy:
+        content: |
+          ===============================================
+          ATTACK RANGE RANSOMWARE SIMULATION
+          ===============================================
+          
+          THIS IS A SIMULATION - NOT REAL RANSOMWARE
+          
+          This file was created by the MS-Attack-Range
+          ransomware simulation playbook for the purpose
+          of generating telemetry in Microsoft Sentinel.
+          
+          In a real attack, this note would contain:
+          - Payment demands (usually cryptocurrency)
+          - Threat to delete/publish data
+          - Contact instructions
+          - Countdown timer
+          
+          MITRE ATT&CK: T1486 - Data Encrypted for Impact
+          
+          This simulation tests detection of:
+          - Mass file extension changes
+          - Ransom note file creation
+          - Volume Shadow Copy deletion
+          - Recovery option tampering
+          - Security service disruption
+          
+          ===============================================
+          MS-ATTACK-RANGE SECURITY TESTING ONLY
+          ===============================================
+        dest: "{{ item }}"
+      loop:
+        - C:\RansomwareSimulation\README_SIMULATION.txt
+        - C:\Users\Public\Desktop\README_SIMULATION.txt
+        - C:\README_SIMULATION.txt
+      ignore_errors: yes
+
+    # --- T1112: Change desktop wallpaper (common ransomware behavior) ---
+    - name: "T1112 - Modify registry to change wallpaper (ransomware indicator)"
+      win_shell: >-
+        $wallpaperPath = 'C:\Users\Public\Desktop\README_SIMULATION.txt';
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop'
+        -Name 'Wallpaper' -Value $wallpaperPath -ErrorAction SilentlyContinue;
+        Write-Host 'Wallpaper registry key modified for simulation'
+      ignore_errors: yes
+
+    - name: Pause between phases
+      pause:
+        seconds: 10
+
+##############################################################################
+# PHASE 3: Lateral Movement Indicators (Spreading Behavior)
+##############################################################################
+- name: "Ransomware Simulation - Phase 3: Lateral Spread Indicators"
+  hosts: windows
+  gather_facts: no
+  tasks:
+
+    # --- Network share enumeration (pre-spread recon) ---
+    - name: "T1135 - Network Share Discovery"
+      win_shell: |
+        Write-Host "[+] Enumerating network shares (ransomware spread recon)..."
+        net share
+        net view /all /domain 2>$null
+      ignore_errors: yes
+
+    # --- SMB connection attempts ---
+    - name: "T1021.002 - SMB lateral movement attempt"
+      win_shell: |
+        Write-Host "[+] Simulating SMB lateral movement attempts..."
+        Get-SmbShare -ErrorAction SilentlyContinue | Select-Object Name, Path, Description
+        Get-SmbConnection -ErrorAction SilentlyContinue | Select-Object ServerName, ShareName
+      ignore_errors: yes
+
+    # --- PsExec-style remote execution indicator ---
+    - name: "T1569.002 - Service Execution (PsExec-like behavior)"
+      win_shell: |
+        Write-Host "[+] Simulating remote service creation (PsExec indicator)..."
+        sc.exe create "RansomSim_Test" binpath= "cmd.exe /c echo SIMULATION" start= demand 2>$null
+        sc.exe delete "RansomSim_Test" 2>$null
+      ignore_errors: yes
+
+    - name: Pause between phases
+      pause:
+        seconds: 10
+
+##############################################################################
+# PHASE 4: Anti-Forensics / Defense Evasion
+##############################################################################
+- name: "Ransomware Simulation - Phase 4: Anti-Forensics"
+  hosts: windows
+  gather_facts: no
+  tasks:
+
+    # --- T1070.001: Clear Windows Event Logs ---
+    - name: "T1070.001 - Clear Windows Security Event Log"
+      win_shell: |
+        Write-Host "[+] Simulating event log clearing..."
+        wevtutil cl Security 2>$null
+        wevtutil cl System 2>$null
+        wevtutil cl Application 2>$null
+      ignore_errors: yes
+
+    # --- T1562.001: Attempt to disable Windows Defender ---
+    - name: "T1562.001 - Attempt to disable Windows Defender (generates alert)"
+      win_shell: |
+        Write-Host "[+] Simulating Defender tampering..."
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+        Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction SilentlyContinue
+        Set-MpPreference -DisableIOAVProtection $true -ErrorAction SilentlyContinue
+      ignore_errors: yes
+
+    # --- T1027: Obfuscated PowerShell (encoded command) ---
+    - name: "T1027 - Execute base64 encoded PowerShell command"
+      win_shell: |
+        Write-Host "[+] Simulating encoded PowerShell execution..."
+        $command = "Write-Host 'Ransomware simulation telemetry test'"
+        $bytes = [System.Text.Encoding]::Unicode.GetBytes($command)
+        $encoded = [Convert]::ToBase64String($bytes)
+        powershell.exe -EncodedCommand $encoded
+      ignore_errors: yes
+
+    - name: Pause before cleanup info
+      pause:
+        seconds: 5
+
+##############################################################################
+# PHASE 5: Cleanup (Restore Lab State)
+##############################################################################
+- name: "Ransomware Simulation - Phase 5: Cleanup"
+  hosts: windows
+  gather_facts: no
+  tasks:
+
+    - name: "Cleanup - Remove simulation files"
+      win_file:
+        path: C:\RansomwareSimulation
+        state: absent
+      ignore_errors: yes
+
+    - name: "Cleanup - Remove ransom notes"
+      win_file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - C:\Users\Public\Desktop\README_SIMULATION.txt
+        - C:\README_SIMULATION.txt
+      ignore_errors: yes
+
+    - name: "Cleanup - Re-enable Windows recovery"
+      win_shell: |
+        bcdedit /set {default} recoveryenabled Yes
+        bcdedit /set {default} bootstatuspolicy displayallfailures
+      ignore_errors: yes
+
+    - name: "Cleanup - Re-enable Defender"
+      win_shell: |
+        Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
+        Set-MpPreference -DisableBehaviorMonitoring $false -ErrorAction SilentlyContinue
+        Set-MpPreference -DisableIOAVProtection $false -ErrorAction SilentlyContinue
+      ignore_errors: yes
+
+    - name: "Cleanup - Restart stopped services"
+      win_service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - VSS
+        - wbengine
+      ignore_errors: yes
+
+    - name: "Simulation Complete"
+      debug:
+        msg: |
+          ============================================
+          RANSOMWARE SIMULATION COMPLETE
+          ============================================
+          Check Microsoft Sentinel for the following alerts:
+            - Suspicious VSS deletion
+            - Mass file extension changes
+            - Security event log clearing
+            - Windows Defender tampering
+            - Encoded PowerShell execution
+            - Suspicious service creation
+            - Network share enumeration
+            - Recovery option tampering
+          
+          All simulation artifacts have been cleaned up.
+          ============================================
+
+
+##############################################################################
+# LINUX PHASE: Ransomware Indicators on Kali (Optional)
+##############################################################################
+- name: "Ransomware Simulation - Linux Indicators"
+  hosts: linux
+  gather_facts: no
+  become: yes
+  tasks:
+
+    - name: "Create Linux simulation directory"
+      file:
+        path: /tmp/ransomware_sim
+        state: directory
+        mode: '0755'
+
+    - name: "Create dummy files on Linux"
+      shell: |
+        for i in $(seq 1 20); do
+          echo "SIMULATION FILE $i - $(date)" > /tmp/ransomware_sim/document_$i.txt
+        done
+
+    # --- Simulate mass rename on Linux ---
+    - name: "T1486 - Mass file rename on Linux (.encrypted extension)"
+      shell: |
+        cd /tmp/ransomware_sim
+        for f in *.txt; do
+          mv "$f" "${f}.encrypted"
+        done
+      ignore_errors: yes
+
+    # --- Drop Linux ransom note ---
+    - name: "Drop Linux ransom note"
+      copy:
+        content: |
+          THIS IS A SIMULATION - MS-ATTACK-RANGE
+          Not real ransomware. Generated for Sentinel telemetry testing.
+        dest: /tmp/ransomware_sim/README_SIMULATION.txt
+
+    # --- Suspicious cron job (persistence for ransomware) ---
+    - name: "T1053.003 - Create suspicious cron entry (persistence indicator)"
+      shell: |
+        echo '# SIMULATION: ransomware persistence test' >> /tmp/ransomware_sim/cron_sim.txt
+        logger -t 'ransomware_sim' 'Attempted cron persistence - MS Attack Range simulation'
+      ignore_errors: yes
+
+    - name: "Cleanup - Remove Linux simulation files"
+      file:
+        path: /tmp/ransomware_sim
+        state: absent
+      ignore_errors: yes
