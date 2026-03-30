@@ -1,0 +1,212 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics workspace name for Microsoft Sentinel"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-vss-deletion')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Indicator - Volume Shadow Copy Deletion",
+        "description": "Detects deletion of Volume Shadow Copies via vssadmin or WMI, a common ransomware pre-encryption technique. MITRE ATT&CK: T1490 - Inhibit System Recovery.",
+        "severity": "High",
+        "enabled": true,
+        "query": "let vss_commands = dynamic([\"vssadmin delete shadows\", \"vssadmin.exe delete shadows\", \"Win32_ShadowCopy\"]);\nSecurityEvent\n| where EventID == 4688\n| where CommandLine has_any (vss_commands)\n  or (CommandLine has \"vssadmin\" and CommandLine has \"delete\")\n  or (CommandLine has \"wmic\" and CommandLine has \"shadowcopy\" and CommandLine has \"delete\")\n| project TimeGenerated, Computer, Account, CommandLine, ParentProcessName, ProcessId\n| extend AccountName = tostring(split(Account, \"\\\\\")[1])\n| extend HostName = tostring(split(Computer, \".\")[0])",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact"],
+        "techniques": ["T1490"],
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              { "identifier": "Name", "columnName": "AccountName" }
+            ]
+          },
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-mass-file-rename')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Indicator - Mass File Extension Change",
+        "description": "Detects mass file renaming operations adding suspicious extensions (.locked, .encrypted, .crypt, .enc), indicating potential ransomware encryption activity. MITRE ATT&CK: T1486 - Data Encrypted for Impact.",
+        "severity": "High",
+        "enabled": true,
+        "query": "let suspicious_extensions = dynamic([\".locked\", \".encrypted\", \".crypt\", \".enc\", \".crypted\", \".locky\", \".cerber\", \".zepto\", \".thor\", \".zzzzz\", \".aaa\", \".xyz\", \".bleep\"]);\nSecurityEvent\n| where EventID == 4663 or EventID == 4688\n| where ObjectName has_any (suspicious_extensions)\n  or CommandLine has \"Rename-Item\" and CommandLine has_any (suspicious_extensions)\n| summarize RenameCount = count(), FilesSample = make_set(ObjectName, 10) by Computer, Account, bin(TimeGenerated, 5m)\n| where RenameCount > 10\n| extend AccountName = tostring(split(Account, \"\\\\\")[1])\n| extend HostName = tostring(split(Computer, \".\")[0])",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact"],
+        "techniques": ["T1486"],
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              { "identifier": "Name", "columnName": "AccountName" }
+            ]
+          },
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-recovery-tampering')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Indicator - Windows Recovery Disabled via BCDEdit",
+        "description": "Detects bcdedit commands that disable Windows recovery options, a common ransomware technique to prevent system restoration. MITRE ATT&CK: T1490 - Inhibit System Recovery.",
+        "severity": "High",
+        "enabled": true,
+        "query": "SecurityEvent\n| where EventID == 4688\n| where (CommandLine has \"bcdedit\" and CommandLine has \"recoveryenabled\" and CommandLine has \"no\")\n  or (CommandLine has \"bcdedit\" and CommandLine has \"bootstatuspolicy\" and CommandLine has \"ignoreallfailures\")\n| project TimeGenerated, Computer, Account, CommandLine, ParentProcessName, ProcessId\n| extend AccountName = tostring(split(Account, \"\\\\\")[1])\n| extend HostName = tostring(split(Computer, \".\")[0])",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact"],
+        "techniques": ["T1490"],
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              { "identifier": "Name", "columnName": "AccountName" }
+            ]
+          },
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-service-stop')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Indicator - Critical Services Stopped",
+        "description": "Detects stopping of backup, database, and security services commonly targeted by ransomware before encryption. MITRE ATT&CK: T1489 - Service Stop.",
+        "severity": "Medium",
+        "enabled": true,
+        "query": "let target_services = dynamic([\"VSS\", \"wbengine\", \"MSSQLSERVER\", \"SQLAgent\", \"SQLBrowser\", \"MSSQL$\", \"MsDtsServer\", \"veeam\", \"backup\"]);\nEvent\n| where EventLog == \"System\"\n| where EventID == 7036\n| where RenderedDescription has \"stopped\" or RenderedDescription has \"entered the stopped state\"\n| where RenderedDescription has_any (target_services)\n| project TimeGenerated, Computer, RenderedDescription, EventID\n| extend HostName = tostring(split(Computer, \".\")[0])\n| summarize StoppedServices = count(), ServiceList = make_set(RenderedDescription, 10) by Computer, HostName, bin(TimeGenerated, 5m)\n| where StoppedServices >= 2",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT5M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact"],
+        "techniques": ["T1489"],
+        "entityMappings": [
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-ransom-note')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Indicator - Ransom Note File Creation",
+        "description": "Detects creation of files with common ransom note naming patterns across multiple directories. MITRE ATT&CK: T1486 - Data Encrypted for Impact.",
+        "severity": "High",
+        "enabled": true,
+        "query": "let ransom_note_patterns = dynamic([\"README\", \"DECRYPT\", \"RECOVER\", \"RESTORE\", \"HOW_TO\", \"HELP_DECRYPT\", \"YOUR_FILES\", \"RANSOM\", \"PAYMENT\", \"UNLOCK\"]);\nSecurityEvent\n| where EventID == 4663\n| where ObjectName has_any (ransom_note_patterns)\n| where ObjectName endswith \".txt\" or ObjectName endswith \".html\" or ObjectName endswith \".hta\"\n| summarize NoteCount = count(), Locations = make_set(ObjectName, 20) by Computer, Account, bin(TimeGenerated, 10m)\n| where NoteCount >= 2\n| extend AccountName = tostring(split(Account, \"\\\\\")[1])\n| extend HostName = tostring(split(Computer, \".\")[0])",
+        "queryFrequency": "PT5M",
+        "queryPeriod": "PT10M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact"],
+        "techniques": ["T1486"],
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [
+              { "identifier": "Name", "columnName": "AccountName" }
+            ]
+          },
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/ransomware-full-chain')]",
+      "apiVersion": "2022-11-01-preview",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Ransomware Attack Chain - Multiple Indicators Detected",
+        "description": "Correlates multiple ransomware indicators (VSS deletion + service stops + file changes + log clearing) on the same host within a short window. High-confidence ransomware detection. MITRE ATT&CK: T1486, T1490, T1489, T1070.",
+        "severity": "High",
+        "enabled": true,
+        "query": "let vss_events = SecurityEvent\n| where EventID == 4688\n| where CommandLine has \"vssadmin\" and CommandLine has \"delete\"\n| summarize VSSTime = min(TimeGenerated) by Computer\n| extend Indicator = \"VSS_Deletion\";\nlet bcdedit_events = SecurityEvent\n| where EventID == 4688\n| where CommandLine has \"bcdedit\" and CommandLine has \"recoveryenabled\"\n| summarize BCDTime = min(TimeGenerated) by Computer\n| extend Indicator = \"Recovery_Disabled\";\nlet log_clear = SecurityEvent\n| where EventID == 1102\n| summarize ClearTime = min(TimeGenerated) by Computer\n| extend Indicator = \"Log_Cleared\";\nvss_events\n| join kind=inner (bcdedit_events) on Computer\n| join kind=leftouter (log_clear) on Computer\n| where abs(datetime_diff('minute', VSSTime, BCDTime)) < 30\n| project TimeGenerated = VSSTime, Computer, VSSTime, BCDTime, ClearTime\n| extend HostName = tostring(split(Computer, \".\")[0])",
+        "queryFrequency": "PT10M",
+        "queryPeriod": "PT30M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT2H",
+        "suppressionEnabled": false,
+        "tactics": ["Impact", "DefenseEvasion"],
+        "techniques": ["T1486", "T1490", "T1489", "T1070"],
+        "entityMappings": [
+          {
+            "entityType": "Host",
+            "fieldMappings": [
+              { "identifier": "HostName", "columnName": "HostName" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
