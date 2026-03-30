@@ -65,6 +65,17 @@ class AttackExecutor:
         "dll_hijacking": "modern_evasion",
         "process_doppelganging": "modern_evasion",
         "modern_evasion_chain": "modern_evasion",
+
+        # Ransomware Simulation (no real encryption - telemetry only)
+        "ransomware_vss_delete": "ransomware_simulation",
+        "ransomware_disable_recovery": "ransomware_simulation",
+        "ransomware_stop_services": "ransomware_simulation",
+        "ransomware_mass_rename": "ransomware_simulation",
+        "ransomware_drop_note": "ransomware_simulation",
+        "ransomware_share_enum": "ransomware_simulation",
+        "ransomware_clear_logs": "ransomware_simulation",
+        "ransomware_disable_defender": "ransomware_simulation",
+        "ransomware_encoded_powershell": "ransomware_simulation",
     }
 
     ATTACK_SEQUENCES = {
@@ -168,6 +179,33 @@ class AttackExecutor:
             "process_discovery", "lolbin_abuse", "process_doppelganging", 
             "dll_hijacking", "clear_logs"
         ],
+        # Ransomware Simulation Sequences (no real encryption)
+        "ransomware_simulation": [
+            # Phase 1: Pre-encryption prep
+            "ransomware_vss_delete",
+            "ransomware_disable_recovery",
+            "ransomware_stop_services",
+            "ransomware_disable_defender",
+            # Phase 2: Simulated encryption + ransom notes
+            "ransomware_mass_rename",
+            "ransomware_drop_note",
+            # Phase 3: Lateral spread indicators
+            "ransomware_share_enum",
+            # Phase 4: Anti-forensics
+            "ransomware_clear_logs",
+            "ransomware_encoded_powershell",
+        ],
+        "ransomware_pre_encryption": [
+            "ransomware_vss_delete",
+            "ransomware_disable_recovery",
+            "ransomware_stop_services",
+            "ransomware_disable_defender",
+        ],
+        "ransomware_impact": [
+            "ransomware_mass_rename",
+            "ransomware_drop_note",
+            "ransomware_clear_logs",
+        ],
     }
     
     def __init__(self, config):
@@ -197,6 +235,16 @@ class AttackExecutor:
             "dll_hijacking": "enhanced/modern_evasion.yml",
             "process_doppelganging": "enhanced/modern_evasion.yml",
             "modern_evasion_chain": "enhanced/modern_evasion.yml",
+            # Ransomware simulation
+            "ransomware_vss_delete": "ransomware_simulation.yml",
+            "ransomware_disable_recovery": "ransomware_simulation.yml",
+            "ransomware_stop_services": "ransomware_simulation.yml",
+            "ransomware_mass_rename": "ransomware_simulation.yml",
+            "ransomware_drop_note": "ransomware_simulation.yml",
+            "ransomware_share_enum": "ransomware_simulation.yml",
+            "ransomware_clear_logs": "ransomware_simulation.yml",
+            "ransomware_disable_defender": "ransomware_simulation.yml",
+            "ransomware_encoded_powershell": "ransomware_simulation.yml",
         }
         
         if attack_type in enhanced_attacks:
@@ -230,6 +278,9 @@ class AttackExecutor:
                           "process_doppelganging", "modern_evasion_chain"]:
             # Enhanced attacks with their own playbooks
             cmd = f"ansible-playbook -i playbooks/inventory.yml playbooks/{playbook} -e target_ip={target} -vv"
+        elif attack_type.startswith("ransomware_"):
+            # Ransomware simulation - runs the full playbook (phases are sequential)
+            cmd = f"ansible-playbook -i playbooks/inventory.yml playbooks/{playbook} -vv"
         elif technique_id.startswith("T"):
             # It's an Atomic Red Team test
             cmd = f"ansible-playbook -i playbooks/inventory.yml playbooks/install_atomic.yml -e technique_id={technique_id} -vv"
